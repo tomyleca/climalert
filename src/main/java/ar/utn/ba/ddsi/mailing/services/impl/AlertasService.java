@@ -1,5 +1,6 @@
 package ar.utn.ba.ddsi.mailing.services.impl;
 
+import ar.utn.ba.ddsi.mailing.models.entities.Alerta;
 import ar.utn.ba.ddsi.mailing.models.entities.Clima;
 import ar.utn.ba.ddsi.mailing.models.entities.Email;
 import ar.utn.ba.ddsi.mailing.models.repositories.IClimaRepository;
@@ -15,8 +16,7 @@ import java.util.List;
 @Service
 public class AlertasService implements IAlertasService {
     private static final Logger logger = LoggerFactory.getLogger(AlertasService.class);
-    private static final double TEMPERATURA_ALERTA = 35.0;
-    private static final int HUMEDAD_ALERTA = 60;
+
 
     private final IClimaRepository climaRepository;
     private final EmailService emailService;
@@ -43,14 +43,12 @@ public class AlertasService implements IAlertasService {
             })
             .flatMap(climas -> {
                 climas.stream()
-                    .filter(this::cumpleCondicionesAlerta)
-                    .forEach(this::generarYEnviarEmail);
-                
-                // Marcar todos como procesados
-                climas.forEach(clima -> {
-                    clima.setProcesado(true);
-                    climaRepository.save(clima);
-                });
+                    .forEach(clima -> {
+                        Alerta alerta = clima.revisarSiHayQueGenerarAlerta();
+                        if (alerta != null)
+                            this.enviarEmail(alerta);
+                        climaRepository.save(clima);});
+
                 
                 return Mono.empty();
             })
@@ -61,34 +59,14 @@ public class AlertasService implements IAlertasService {
             .then();
     }
 
-    private boolean cumpleCondicionesAlerta(Clima clima) {
-        //TODO: podríamos refactorizar el diseño para que no sea un simple método, pues puede ser más complejo
-        return clima.getTemperaturaCelsius() > TEMPERATURA_ALERTA && 
-               clima.getHumedad() > HUMEDAD_ALERTA;
-    }
 
-    private void generarYEnviarEmail(Clima clima) {
-        String asunto = "Alerta de Clima - Condiciones Extremas";
-        String mensaje = String.format(
-            "ALERTA: Condiciones climáticas extremas detectadas en %s\n\n" +
-            "Temperatura: %.1f°C\n" +
-            "Humedad: %d%%\n" +
-            "Condición: %s\n" +
-            "Velocidad del viento: %.1f km/h\n\n" +
-            "Se recomienda tomar precauciones.",
-            clima.getCiudad(),
-            clima.getTemperaturaCelsius(),
-            clima.getHumedad(),
-            clima.getCondicion(),
-            clima.getVelocidadVientoKmh()
-        );
 
-        for (String destinatario : destinatarios) {
-            Email email = new Email(destinatario, remitente, asunto, mensaje);
-            emailService.crearEmail(email);
-        }
-        
-        logger.info("Email de alerta generado para {} - Enviado a {} destinatarios", 
-            clima.getCiudad(), destinatarios.size());
+
+    private void enviarEmail(Alerta alerta) {
+        for (String destinatario : destinatarios)
+            emailService.crearEmail(Email.of(destinatario,remitente,alerta));
+
+        logger.info("Email de alerta generado para {} - Enviado a {} destinatarios",
+            alerta.getCiudad(), destinatarios.size());
     }
-} 
+}
